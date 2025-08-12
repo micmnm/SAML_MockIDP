@@ -1,0 +1,14 @@
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\bin\Debug\net8.0\TestSAML_MockIDP.exe
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\bin\Debug\net8.0\TestSAML_MockIDP.deps.json
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\bin\Debug\net8.0\TestSAML_MockIDP.runtimeconfig.json
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\bin\Debug\net8.0\TestSAML_MockIDP.dll
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\bin\Debug\net8.0\TestSAML_MockIDP.pdb
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\obj\Debug\net8.0\TestSAML_MockIDP.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\obj\Debug\net8.0\TestSAML_MockIDP.AssemblyInfoInputs.cache
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\obj\Debug\net8.0\TestSAML_MockIDP.AssemblyInfo.cs
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\obj\Debug\net8.0\TestSAML_MockIDP.csproj.CoreCompileInputs.cache
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\obj\Debug\net8.0\TestSAML_MockIDP.dll
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\obj\Debug\net8.0\refint\TestSAML_MockIDP.dll
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\obj\Debug\net8.0\TestSAML_MockIDP.pdb
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\obj\Debug\net8.0\TestSAML_MockIDP.genruntimeconfig.cache
+C:\Users\MirceaMilitaru\Work\repos\others\TestSAML_MockIDP\TestSAML_MockIDP\obj\Debug\net8.0\ref\TestSAML_MockIDP.dll
