@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("TestSAML_MockIDP")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cc56402ccc75d5d7f03b91727434ef8f30179732")]
 [assembly: System.Reflection.AssemblyProductAttribute("TestSAML_MockIDP")]
 [assembly: System.Reflection.AssemblyTitleAttribute("TestSAML_MockIDP")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
