@@ -1,5 +1,4 @@
-﻿
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using System.IO.Compression;
 using System.Text;
 using System.Xml;
@@ -13,10 +12,21 @@ namespace TestSAML_MockIDP;
 public class SamlController : ControllerBase
 {
     private readonly ILogger<SamlController> _logger;
+    private const string IdpEntityId = "https://localhost:8888/saml2/metadata";
+    private const string IdpBaseUrl = "https://localhost:8888";
 
     public SamlController(ILogger<SamlController> logger)
     {
         _logger = logger;
+    }
+
+    [HttpGet("metadata")]
+    public async Task<IActionResult> GetMetadata()
+    {
+        _logger.LogInformation("SAML Metadata requested");
+        
+        var metadata = GenerateSamlMetadata();
+        return Content(metadata, "application/samlmetadata+xml");
     }
 
     [HttpGet("sso/web")]
@@ -57,6 +67,10 @@ public class SamlController : ControllerBase
                 return BadRequest("AssertionConsumerServiceURL not found in SAML request");
             }
 
+            // Extract EntityID from the SAML request
+            var entityId = ExtractEntityId(samlDoc);
+            _logger.LogInformation("Service Provider EntityID: {EntityId}", entityId);
+
             // Mock user data
             var userEmail = "john.doe@example.com";
             var userName = "John Doe";
@@ -66,7 +80,7 @@ public class SamlController : ControllerBase
 
             // Generate SAML response
             var responseTime = DateTime.UtcNow;
-            var samlResponse = GenerateSamlResponse(samlDoc, userEmail, userName, responseTime);
+            var samlResponse = GenerateSamlResponse(samlDoc, userEmail, userName, responseTime, entityId);
             var encodedResponse = Convert.ToBase64String(Encoding.UTF8.GetBytes(samlResponse));
 
             _logger.LogInformation("=== SAML SSO RESPONSE GENERATED ===");
@@ -134,7 +148,35 @@ public class SamlController : ControllerBase
         return authRequest?.Attributes?["AssertionConsumerServiceURL"]?.Value;
     }
 
-    private string GenerateSamlResponse(XmlDocument originalRequest, string userEmail, string userName, DateTime responseTime)
+    private string ExtractEntityId(XmlDocument samlDoc)
+    {
+        try
+        {
+            var namespaceManager = new XmlNamespaceManager(samlDoc.NameTable);
+            namespaceManager.AddNamespace("samlp", "urn:oasis:names:tc:SAML:2.0:protocol");
+            namespaceManager.AddNamespace("saml", "urn:oasis:names:tc:SAML:2.0:assertion");
+            
+            // Try to extract from AuthnRequest Issuer
+            var issuerNode = samlDoc.SelectSingleNode("//saml:Issuer", namespaceManager);
+            var entityId = issuerNode?.InnerText;
+            
+            if (string.IsNullOrEmpty(entityId))
+            {
+                // Fallback: try to get from AuthnRequest attributes
+                var authRequest = samlDoc.SelectSingleNode("//samlp:AuthnRequest", namespaceManager);
+                entityId = authRequest?.Attributes?["Issuer"]?.Value;
+            }
+            
+            return entityId ?? "urn:example:sp";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to extract EntityID from SAML request");
+            return "urn:example:sp";
+        }
+    }
+
+    private string GenerateSamlResponse(XmlDocument originalRequest, string userEmail, string userName, DateTime responseTime, string spEntityId)
     {
         var namespaceManager = new XmlNamespaceManager(originalRequest.NameTable);
         namespaceManager.AddNamespace("samlp", "urn:oasis:names:tc:SAML:2.0:protocol");
@@ -154,7 +196,7 @@ public class SamlController : ControllerBase
                 IssueInstant=""{issueInstant}""
                 Destination=""{ExtractAssertionConsumerServiceUrl(originalRequest)}""
                 InResponseTo=""{requestId}"">
-    <saml:Issuer>https://localhost:8888</saml:Issuer>
+    <saml:Issuer>{IdpEntityId}</saml:Issuer>
     <samlp:Status>
         <samlp:StatusCode Value=""urn:oasis:names:tc:SAML:2.0:status:Success""/>
     </samlp:Status>
@@ -162,7 +204,7 @@ public class SamlController : ControllerBase
                     ID=""{assertionId}""
                     Version=""2.0""
                     IssueInstant=""{issueInstant}"">
-        <saml:Issuer>https://localhost:8888</saml:Issuer>
+        <saml:Issuer>{IdpEntityId}</saml:Issuer>
         <saml:Subject>
             <saml:NameID Format=""urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"">{userEmail}</saml:NameID>
             <saml:SubjectConfirmation Method=""urn:oasis:names:tc:SAML:2.0:cm:bearer"">
@@ -174,7 +216,7 @@ public class SamlController : ControllerBase
         <saml:Conditions NotBefore=""{responseTime.AddMinutes(-5).ToString("yyyy-MM-ddTHH:mm:ss.fffZ")}""
                         NotOnOrAfter=""{responseTime.AddMinutes(5).ToString("yyyy-MM-ddTHH:mm:ss.fffZ")}"">
             <saml:AudienceRestriction>
-                <saml:Audience>urn:example:sp</saml:Audience>
+                <saml:Audience>{spEntityId}</saml:Audience>
             </saml:AudienceRestriction>
         </saml:Conditions>
         <saml:AuthnStatement AuthnInstant=""{issueInstant}"">
@@ -197,6 +239,45 @@ public class SamlController : ControllerBase
 </samlp:Response>";
 
         return samlResponse;
+    }
+
+    private string GenerateSamlMetadata()
+    {
+        var validUntil = DateTime.UtcNow.AddYears(10).ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+        
+        var metadata = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
+<md:EntityDescriptor xmlns:md=""urn:oasis:names:tc:SAML:2.0:metadata""
+                     xmlns:ds=""http://www.w3.org/2000/09/xmldsig#""
+                     entityID=""{IdpEntityId}""
+                     validUntil=""{validUntil}"">
+    <md:IDPSSODescriptor WantAuthnRequestsSigned=""false""
+                         protocolSupportEnumeration=""urn:oasis:names:tc:SAML:2.0:protocol"">
+        <md:KeyDescriptor use=""signing"">
+            <ds:KeyInfo>
+                <ds:KeyName>MockIDP-Signing-Key</ds:KeyName>
+            </ds:KeyInfo>
+        </md:KeyDescriptor>
+        <md:NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress</md:NameIDFormat>
+        <md:NameIDFormat>urn:oasis:names:tc:SAML:2.0:nameid-format:persistent</md:NameIDFormat>
+        <md:NameIDFormat>urn:oasis:names:tc:SAML:2.0:nameid-format:transient</md:NameIDFormat>
+        <md:SingleSignOnService Binding=""urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect""
+                               Location=""{IdpBaseUrl}/saml2/sso/web""/>
+        <md:SingleSignOnService Binding=""urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST""
+                               Location=""{IdpBaseUrl}/saml2/sso/web""/>
+        <md:AttributeService Binding=""urn:oasis:names:tc:SAML:2.0:bindings:SOAP""
+                            Location=""{IdpBaseUrl}/saml2/attribute""/>
+    </md:IDPSSODescriptor>
+    <md:ContactPerson contactType=""technical"">
+        <md:GivenName>Mock IDP</md:GivenName>
+        <md:EmailAddress>admin@mockidp.local</md:EmailAddress>
+    </md:ContactPerson>
+    <md:ContactPerson contactType=""support"">
+        <md:GivenName>Mock IDP Support</md:GivenName>
+        <md:EmailAddress>support@mockidp.local</md:EmailAddress>
+    </md:ContactPerson>
+</md:EntityDescriptor>";
+
+        return metadata;
     }
 
     private string CreateAutoPostForm(string actionUrl, string samlResponse, string relayState, string userEmail, DateTime responseTime)
@@ -228,6 +309,7 @@ public class SamlController : ControllerBase
 <body onload=""setTimeout(function(){{   document.forms[0].submit();    }}, 60000)"">
     <div class=""info"">
         <h3>Mock SAML IDP - SSO Response</h3>
+        <p><strong>IDP Entity ID:</strong> <span class=""highlight"">{IdpEntityId}</span></p>
         <p><strong>Response Time:</strong> <span class=""highlight"">{responseTime:yyyy-MM-dd HH:mm:ss.fff} UTC</span></p>
         <p><strong>Authenticated User:</strong> <span class=""highlight"">{HttpUtility.HtmlEncode(userEmail)}</span></p>
         <p><strong>Redirecting to:</strong> {HttpUtility.HtmlEncode(actionUrl)}</p>
