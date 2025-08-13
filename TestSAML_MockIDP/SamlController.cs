@@ -26,6 +26,8 @@ public class SamlController : ControllerBase
         _logger.LogInformation("SAML Metadata requested");
         
         var metadata = GenerateSamlMetadata();
+        
+        Response.Headers.Add("Content-Disposition", "inline; filename=metadata.xml");
         return Content(metadata, "application/samlmetadata+xml");
     }
 
