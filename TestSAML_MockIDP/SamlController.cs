@@ -1,8 +1,12 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using System.IO.Compression;
+﻿using System.IO.Compression;
+using Microsoft.AspNetCore.Mvc;
 using System.Text;
 using System.Xml;
+using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography.Xml;
+using System.Security.Cryptography;
 using System.Web;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace TestSAML_MockIDP;
@@ -12,19 +16,22 @@ namespace TestSAML_MockIDP;
 public class SamlController : ControllerBase
 {
     private readonly ILogger<SamlController> _logger;
-    private const string IdpEntityId = "https://localhost:8888/saml2/metadata";
-    private const string IdpBaseUrl = "https://localhost:8888";
+    private readonly IConfiguration _configuration;
+    private string _idpBaseUrl;
 
-    public SamlController(ILogger<SamlController> logger)
+    public SamlController(ILogger<SamlController> logger, IConfiguration configuration)
     {
         _logger = logger;
+        _configuration = configuration;
+        _idpBaseUrl = "https://localhost:8888";
     }
+
+    // Property to get the IDP Entity ID based on the current request
+    private string IdpEntityId => $"{_idpBaseUrl}/saml2/metadata";
 
     [HttpGet("metadata")]
     public async Task<IActionResult> GetMetadata()
     {
-        _logger.LogInformation("SAML Metadata requested");
-        
         var metadata = GenerateSamlMetadata();
         
         Response.Headers.Add("Content-Disposition", "inline; filename=metadata.xml");
@@ -182,65 +189,154 @@ public class SamlController : ControllerBase
     {
         var namespaceManager = new XmlNamespaceManager(originalRequest.NameTable);
         namespaceManager.AddNamespace("samlp", "urn:oasis:names:tc:SAML:2.0:protocol");
-        
         var authRequest = originalRequest.SelectSingleNode("//samlp:AuthnRequest", namespaceManager);
         var requestId = authRequest?.Attributes?["ID"]?.Value ?? Guid.NewGuid().ToString();
         
         var responseId = "_" + Guid.NewGuid().ToString();
         var assertionId = "_" + Guid.NewGuid().ToString();
         var issueInstant = responseTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-        
-        var samlResponse = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
-<samlp:Response xmlns:samlp=""urn:oasis:names:tc:SAML:2.0:protocol""
-                xmlns:saml=""urn:oasis:names:tc:SAML:2.0:assertion""
-                ID=""{responseId}""
-                Version=""2.0""
-                IssueInstant=""{issueInstant}""
+        var notBefore = responseTime.AddMinutes(-5).ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+        var notOnOrAfter = responseTime.AddMinutes(60).ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+
+        var samlResponseXml = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
+<saml2p:Response xmlns:saml2p=""urn:oasis:names:tc:SAML:2.0:protocol""
+                 xmlns:saml2=""urn:oasis:names:tc:SAML:2.0:assertion""
+                 ID=""{responseId}""
+                 Version=""2.0""
+                 IssueInstant=""{issueInstant}""
                 Destination=""{ExtractAssertionConsumerServiceUrl(originalRequest)}""
                 InResponseTo=""{requestId}"">
-    <saml:Issuer>{IdpEntityId}</saml:Issuer>
-    <samlp:Status>
-        <samlp:StatusCode Value=""urn:oasis:names:tc:SAML:2.0:status:Success""/>
-    </samlp:Status>
-    <saml:Assertion xmlns:saml=""urn:oasis:names:tc:SAML:2.0:assertion""
-                    ID=""{assertionId}""
-                    Version=""2.0""
-                    IssueInstant=""{issueInstant}"">
-        <saml:Issuer>{IdpEntityId}</saml:Issuer>
-        <saml:Subject>
-            <saml:NameID Format=""urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"">{userEmail}</saml:NameID>
-            <saml:SubjectConfirmation Method=""urn:oasis:names:tc:SAML:2.0:cm:bearer"">
-                <saml:SubjectConfirmationData NotOnOrAfter=""{responseTime.AddMinutes(5).ToString("yyyy-MM-ddTHH:mm:ss.fffZ")}""
+    <saml2:Issuer>{IdpEntityId}</saml2:Issuer>
+    <saml2p:Status>
+        <saml2p:StatusCode Value=""urn:oasis:names:tc:SAML:2.0:status:Success""/>
+    </saml2p:Status>
+    <saml2:Assertion xmlns:saml2=""urn:oasis:names:tc:SAML:2.0:assertion""
+                     ID=""{assertionId}""
+                     Version=""2.0""
+                     IssueInstant=""{issueInstant}"">
+        <saml2:Issuer>{IdpEntityId}</saml2:Issuer>
+        <saml2:Subject>
+            <saml2:NameID Format=""urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"">{userEmail}</saml2:NameID>
+            <saml2:SubjectConfirmation Method=""urn:oasis:names:tc:SAML:2.0:cm:bearer"">
+                <saml2:SubjectConfirmationData NotOnOrAfter=""{responseTime.AddMinutes(5).ToString("yyyy-MM-ddTHH:mm:ss.fffZ")}""
                                             Recipient=""{ExtractAssertionConsumerServiceUrl(originalRequest)}""
                                             InResponseTo=""{requestId}""/>
-            </saml:SubjectConfirmation>
-        </saml:Subject>
-        <saml:Conditions NotBefore=""{responseTime.AddMinutes(-5).ToString("yyyy-MM-ddTHH:mm:ss.fffZ")}""
-                        NotOnOrAfter=""{responseTime.AddMinutes(5).ToString("yyyy-MM-ddTHH:mm:ss.fffZ")}"">
-            <saml:AudienceRestriction>
-                <saml:Audience>{spEntityId}</saml:Audience>
-            </saml:AudienceRestriction>
-        </saml:Conditions>
-        <saml:AuthnStatement AuthnInstant=""{issueInstant}"">
-            <saml:AuthnContext>
-                <saml:AuthnContextClassRef>urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport</saml:AuthnContextClassRef>
-            </saml:AuthnContext>
-        </saml:AuthnStatement>
-        <saml:AttributeStatement>
-            <saml:Attribute Name=""http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"">
-                <saml:AttributeValue>{userEmail}</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name=""http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"">
-                <saml:AttributeValue>{userName}</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name=""ResponseGeneratedAt"">
-                <saml:AttributeValue>{issueInstant}</saml:AttributeValue>
-            </saml:Attribute>
-        </saml:AttributeStatement>
-    </saml:Assertion>
-</samlp:Response>";
+            </saml2:SubjectConfirmation>
+        </saml2:Subject>
+        <saml2:Conditions NotBefore=""{notBefore}"" NotOnOrAfter=""{notOnOrAfter}"">
+            <saml2:AudienceRestriction>
+                <saml2:Audience>{spEntityId}</saml2:Audience>
+            </saml2:AudienceRestriction>
+        </saml2:Conditions>
+        <saml2:AuthnStatement AuthnInstant=""{issueInstant}"">
+            <saml2:AuthnContext>
+                <saml2:AuthnContextClassRef>urn:oasis:names:tc:SAML:2.0:ac:classes:Password</saml2:AuthnContextClassRef>
+            </saml2:AuthnContext>
+        </saml2:AuthnStatement>
+        <saml2:AttributeStatement>
+            <saml2:Attribute Name=""http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"">
+                <saml2:AttributeValue>{userEmail}</saml2:AttributeValue>
+            </saml2:Attribute>
+            <saml2:Attribute Name=""http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"">
+                <saml2:AttributeValue>{userName}</saml2:AttributeValue>
+            </saml2:Attribute>
+        </saml2:AttributeStatement>
+    </saml2:Assertion>
+</saml2p:Response>";
 
-        return samlResponse;
+        var doc = new XmlDocument();
+        doc.LoadXml(samlResponseXml);
+
+        // Sign the SAML response
+        SignSamlDocument(doc);
+
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes(doc.OuterXml));
+    }
+
+    private void SignSamlDocument(XmlDocument doc)
+    {
+        try
+        {
+            // Get certificate paths from configuration
+            var publicCertPath = _configuration["Saml:PublicCertificate"];
+            var privateCertPath = _configuration["Saml:PrivateCertificate"];
+
+            if (string.IsNullOrEmpty(publicCertPath) || string.IsNullOrEmpty(privateCertPath))
+            {
+                _logger.LogWarning("SAML certificate paths not configured. Response will not be signed.");
+                return;
+            }
+
+            // Load the certificate
+            var cert = LoadCertificateFromFiles(publicCertPath, privateCertPath);
+            
+            if (cert == null)
+            {
+                _logger.LogWarning("Failed to load SAML certificates. Response will not be signed.");
+                return;
+            }
+
+            // Create the signed XML
+            var signedXml = new SignedXml(doc);
+            signedXml.SigningKey = cert.GetRSAPrivateKey();
+
+            // Create a reference to be signed
+            var reference = new Reference();
+            reference.Uri = "";
+            
+            // Add an enveloped transformation to the reference
+            var env = new XmlDsigEnvelopedSignatureTransform();
+            reference.AddTransform(env);
+            
+            signedXml.AddReference(reference);
+
+            // Add the key info
+            var keyInfo = new KeyInfo();
+            keyInfo.AddClause(new KeyInfoX509Data(cert));
+            signedXml.KeyInfo = keyInfo;
+
+            // Compute the signature
+            signedXml.ComputeSignature();
+
+            // Get the XML representation of the signature and save it to an XmlElement object
+            var xmlDigitalSignature = signedXml.GetXml();
+
+            // Append the element to the XML document
+            doc.DocumentElement.AppendChild(doc.ImportNode(xmlDigitalSignature, true));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to sign SAML response");
+            // Continue without signing rather than failing completely
+        }
+    }
+
+    private X509Certificate2 LoadCertificateFromFiles(string publicCertPath, string privateCertPath)
+    {
+        try
+        {
+            // Load public certificate
+            var publicCertBytes = System.IO.File.ReadAllBytes(publicCertPath);
+            var publicCert = new X509Certificate2(publicCertBytes);
+
+            // Load private key
+            var privateKeyPem = System.IO.File.ReadAllText(privateCertPath);
+            
+            // Parse the private key (assuming PEM format)
+            var rsa = RSA.Create();
+            rsa.ImportFromPem(privateKeyPem);
+
+            // Combine public certificate with private key
+            var certWithKey = publicCert.CopyWithPrivateKey(rsa);
+            
+            return certWithKey;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load certificates from files: {PublicCert}, {PrivateCert}", 
+                publicCertPath, privateCertPath);
+            return null;
+        }
     }
 
     private string GenerateSamlMetadata()
@@ -263,11 +359,11 @@ public class SamlController : ControllerBase
         <md:NameIDFormat>urn:oasis:names:tc:SAML:2.0:nameid-format:persistent</md:NameIDFormat>
         <md:NameIDFormat>urn:oasis:names:tc:SAML:2.0:nameid-format:transient</md:NameIDFormat>
         <md:SingleSignOnService Binding=""urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect""
-                               Location=""{IdpBaseUrl}/saml2/sso/web""/>
+                               Location=""{_idpBaseUrl}/saml2/sso/web""/>
         <md:SingleSignOnService Binding=""urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST""
-                               Location=""{IdpBaseUrl}/saml2/sso/web""/>
+                               Location=""{_idpBaseUrl}/saml2/sso/web""/>
         <md:AttributeService Binding=""urn:oasis:names:tc:SAML:2.0:bindings:SOAP""
-                            Location=""{IdpBaseUrl}/saml2/attribute""/>
+                            Location=""{_idpBaseUrl}/saml2/attribute""/>
     </md:IDPSSODescriptor>
     <md:ContactPerson contactType=""technical"">
         <md:GivenName>Mock IDP</md:GivenName>
@@ -279,8 +375,13 @@ public class SamlController : ControllerBase
     </md:ContactPerson>
 </md:EntityDescriptor>";
 
-        return metadata;
-    }
+    // Sign the metadata document
+    var doc = new XmlDocument();
+    doc.LoadXml(metadata);
+    SignSamlDocument(doc);
+    
+    return doc.OuterXml;
+}
 
     private string CreateAutoPostForm(string actionUrl, string samlResponse, string relayState, string userEmail, DateTime responseTime)
     {
